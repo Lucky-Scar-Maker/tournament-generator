@@ -167,8 +167,18 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 8px;
+    transition: border-color var(--t), box-shadow var(--t), opacity var(--t);
   }
-  .player-row .num { color: var(--muted); font-size: .8rem; width: 22px; text-align: center; flex-shrink: 0; }
+  .player-row .drag-handle {
+    cursor: grab; color: var(--muted-2); font-size: 1.05rem; line-height: 1;
+    padding: 0 1px; flex-shrink: 0; user-select: none;
+    transition: color var(--t);
+  }
+  .player-row .drag-handle:hover { color: var(--text); }
+  .player-row .drag-handle:active { cursor: grabbing; }
+  .player-row.dragging { opacity: .45; }
+  .player-row.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+  .player-row .num { color: var(--muted); font-size: .8rem; width: 20px; text-align: center; flex-shrink: 0; }
   .player-row .flag-pick {
     width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--border);
     background: white; font-size: 1.4rem; cursor: pointer; flex-shrink: 0;
@@ -238,6 +248,15 @@
   .match:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
   .match.locked { background: var(--card-2); }
   .match.played { border-color: color-mix(in srgb, var(--success) 32%, var(--border)); }
+  .match.bye { background: var(--card-2); border-style: dashed; }
+  .bye-badge {
+    font-size: .72rem; font-weight: 700; letter-spacing: .03em;
+    color: var(--muted); background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+    white-space: nowrap;
+  }
+  .swiss-next { text-align: center; margin-top: 8px; }
+  .swiss-next .help { margin: 0 0 10px; }
   .match .team {
     display: flex; align-items: center; gap: 8px;
     font-weight: 600;
@@ -407,9 +426,17 @@
   .ko-row .who .flag { flex-shrink: 0; }
   .ko-row .who .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ko-row input { width: 42px; padding: 4px; text-align: center; font-weight: 700; }
+  .ko-row .ko-agg { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 24px; text-align: center; }
   .ko-divider { height: 1px; background: var(--border); margin: 4px -12px; }
   .ko-meta { font-size: .72rem; color: var(--muted); margin-top: 6px; text-align: center; }
   .ko-tbd { color: var(--muted-2); font-style: italic; }
+  /* Two-leg score entry */
+  .ko-legs { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
+  .ko-leg { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .ko-leg .leg-tag { font-size: .62rem; font-weight: 700; letter-spacing: .04em; color: var(--muted-2); width: 16px; flex-shrink: 0; }
+  .ko-leg .flag { font-size: 1rem; flex-shrink: 0; }
+  .ko-leg input { width: 38px; padding: 4px; text-align: center; font-weight: 700; }
+  .ko-leg .leg-dash { color: var(--muted); }
 
   .stat-grid {
     display: grid; gap: 14px;
@@ -653,6 +680,7 @@
   html[data-theme="midnight"] .champion-banner .name { color: #fff; }
   html[data-theme="midnight"] .scores input,
   html[data-theme="midnight"] .ko-row input,
+  html[data-theme="midnight"] .ko-leg input,
   html[data-theme="midnight"] .pen-row input {
     background: #0a0e1a; color: var(--accent);
     border-color: var(--border-strong); font-weight: 700;
@@ -762,6 +790,7 @@
         <button class="seg" data-theme-btn="midnight" aria-pressed="false" title="Modern dark theme">Midnight</button>
       </div>
       <button class="btn ghost small" id="btnEdit" title="Edit players & names" style="display:none">Edit</button>
+      <button class="btn ghost small" id="btnSimulate" title="Fill remaining matches with random scores" style="display:none">🎲 Simulate</button>
       <button class="btn ghost small" id="btnShare" title="Copy shareable link" style="display:none">Share</button>
       <button class="btn ghost small" id="btnExport" title="Export tournament data" style="display:none">Export</button>
       <button class="btn ghost small" id="btnPrint" title="Print" style="display:none">Print</button>
@@ -809,6 +838,7 @@ const DEFAULT_AVATAR = '⚽';
 let state = null;       // current tournament state
 let activeTab = 'fixtures';
 let pendingFlag = null; // id of player whose flag picker is open
+let dragFromIdx = null; // setup: index of player row being dragged
 let saveTimer = null;
 let soundOn = true;
 let fixtureFilter = 'all';   // 'all' | 'unplayed' | 'played' | 'player:<id>'
@@ -836,6 +866,8 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+// A match counts as "played" if it's a Swiss bye or has both scores entered.
+function matchPlayed(m) { return m.bye != null || (m.homeScore != null && m.awayScore != null); }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, ms = 2200) {
   const t = document.getElementById('toast');
@@ -914,6 +946,12 @@ function emptyRow(p) {
 }
 
 function applyResult(rows, byId, m) {
+  // Swiss bye: the player gets a free win (3 pts, no goals).
+  if (m.bye != null) {
+    const r = rows[byId[m.bye]];
+    if (r) { r.played++; r.won++; r.points += 3; r.form.push('W'); }
+    return;
+  }
   if (m.homeScore == null || m.awayScore == null) return;
   const hi = byId[m.home], ai = byId[m.away];
   const h = rows[hi], a = rows[ai];
@@ -1085,6 +1123,15 @@ function buildKoBracket(seedsInOrder, type) {
       };
     }
   }
+
+  // Tag legs: non-final rounds are two-legged when koLegs === 2; final & 3rd-place stay single.
+  const legs = state && state.koLegs === 2 ? 2 : 1;
+  rounds.forEach((round, ri) => {
+    const isFinal = ri === rounds.length - 1;
+    round.forEach(mm => { mm.legs = isFinal ? 1 : legs; });
+  });
+  if (thirdPlace) thirdPlace.legs = 1;
+
   return { rounds, thirdPlace };
 }
 
@@ -1142,16 +1189,37 @@ function shortMatchLabel(m) {
   return `${nameOf(m.home) || m.homeLabel} v ${nameOf(m.away) || m.awayLabel}`;
 }
 
+// Aggregate goals for a two-leg tie (m.home perspective / m.away perspective).
+function koAggregate(m) {
+  return {
+    home: (m.homeScore || 0) + (m.l2a || 0),
+    away: (m.awayScore || 0) + (m.l2h || 0),
+  };
+}
+function koLegsComplete(m) {
+  if (m.legs === 2) return matchPlayed(m) && m.l2h != null && m.l2a != null;
+  return matchPlayed(m);
+}
+// True when the tie is level after normal play and a shootout is required.
+function koNeedsShootout(m) {
+  if (!m.home || !m.away || !koLegsComplete(m)) return false;
+  if (m.legs === 2) { const a = koAggregate(m); return a.home === a.away; }
+  return m.homeScore === m.awayScore;
+}
 function koWinner(m) {
   if (m.home == null && m.away != null) return { playerId: m.away, label: nameOf(m.away) };
   if (m.away == null && m.home != null) return { playerId: m.home, label: nameOf(m.home) };
-  if (m.homeScore == null || m.awayScore == null) return null;
-  if (m.homeScore > m.awayScore) return { playerId: m.home, label: nameOf(m.home) };
-  if (m.awayScore > m.homeScore) return { playerId: m.away, label: nameOf(m.away) };
-  // Draw -> penalty shootout
+  const home = { playerId: m.home, label: nameOf(m.home) };
+  const away = { playerId: m.away, label: nameOf(m.away) };
+  if (!koLegsComplete(m)) return null;
+  let hv, av;
+  if (m.legs === 2) { const a = koAggregate(m); hv = a.home; av = a.away; }
+  else { hv = m.homeScore; av = m.awayScore; }
+  if (hv > av) return home;
+  if (av > hv) return away;
+  // Level -> penalty shootout
   if (m.homePen != null && m.awayPen != null && m.homePen !== m.awayPen) {
-    if (m.homePen > m.awayPen) return { playerId: m.home, label: nameOf(m.home) };
-    return { playerId: m.away, label: nameOf(m.away) };
+    return m.homePen > m.awayPen ? home : away;
   }
   return null;
 }
@@ -1182,6 +1250,8 @@ function defaultState() {
     matchesPerPair: 1,       // 1 or 2
     groupCount: 2,           // for groups-ko
     koSize: 4,               // 2/4/8/16 top-N from league
+    koLegs: 1,               // 1 = single match per tie, 2 = home & away on aggregate (final stays single)
+    swissRounds: 4,          // swiss: number of rounds to play
     perGroupAdvance: 2,      // groups-ko
     players: [],             // [{id, name, avatar}]
     schedule: { league: [], groupSchedules: [] }, // league: matchdays, groupSchedules: [matchdays per group]
@@ -1355,6 +1425,7 @@ function renderSetup() {
     ['league', 'League only (round-robin table)'],
     ['league-ko', 'League → Knockout (top X qualify for bracket)'],
     ['groups-ko', 'Groups → Knockout (split into groups, top per group advance)'],
+    ['swiss', 'Swiss system (fixed rounds, paired on form, no eliminations)'],
   ].forEach(([v, lbl]) => fmtSel.append(el('option', { value: v, selected: state.format === v }, lbl)));
   fmtSel.addEventListener('change', () => { state.format = fmtSel.value; renderSetup(); });
   fmtField.append(fmtSel);
@@ -1373,28 +1444,32 @@ function renderSetup() {
 
   // Groups config (only for groups-ko)
   if (state.format === 'groups-ko') {
+    const N = state.players.length;
     const gRow = el('div', { class: 'field-row' });
     const gField = el('div', { class: 'field' });
     gField.append(el('label', { for: 'groups' }, 'Number of groups'));
     const gSel = el('select', { id: 'groups' });
+    // Any split where every group has at least 2 players (uneven groups allowed).
     const validGroupCounts = [];
-    for (let g = 2; g <= Math.floor(state.players.length / 2); g++) {
-      if (state.players.length % g === 0) validGroupCounts.push(g);
-    }
-    if (validGroupCounts.length === 0) validGroupCounts.push(2);
-    validGroupCounts.forEach(g => gSel.append(el('option', { value: String(g), selected: state.groupCount === g }, `${g} groups of ${state.players.length / g}`)));
+    for (let g = 2; g <= Math.floor(N / 2); g++) validGroupCounts.push(g);
+    if (validGroupCounts.length === 0) validGroupCounts.push(1);
     if (!validGroupCounts.includes(state.groupCount)) state.groupCount = validGroupCounts[0];
+    validGroupCounts.forEach(g => {
+      const base = Math.floor(N / g), rem = N % g;
+      const sizeLabel = rem === 0 ? `of ${base}` : `of ${base}–${base + 1}`;
+      gSel.append(el('option', { value: String(g), selected: state.groupCount === g }, `${g} groups ${sizeLabel}`));
+    });
     gSel.addEventListener('change', () => { state.groupCount = parseInt(gSel.value); renderSetup(); });
     gField.append(gSel);
-    gField.append(el('p', { class: 'hint' }, 'Only group sizes that divide evenly are shown.'));
+    gField.append(el('p', { class: 'hint' }, 'Uneven groups are balanced by snake draft.'));
     gRow.append(gField);
 
     const aField = el('div', { class: 'field' });
     aField.append(el('label', { for: 'adv' }, 'Players advancing per group'));
     const aSel = el('select', { id: 'adv' });
-    const perGroup = state.players.length / state.groupCount;
-    for (let a = 1; a < perGroup; a++) aSel.append(el('option', { value: String(a), selected: state.perGroupAdvance === a }, String(a)));
-    if (state.perGroupAdvance >= perGroup) state.perGroupAdvance = Math.max(1, perGroup - 1);
+    const smallest = Math.floor(N / state.groupCount); // smallest group size
+    if (state.perGroupAdvance >= smallest) state.perGroupAdvance = Math.max(1, smallest - 1);
+    for (let a = 1; a < smallest; a++) aSel.append(el('option', { value: String(a), selected: state.perGroupAdvance === a }, String(a)));
     aSel.addEventListener('change', () => { state.perGroupAdvance = parseInt(aSel.value); });
     aField.append(aSel);
     gRow.append(aField);
@@ -1419,12 +1494,78 @@ function renderSetup() {
     card.append(koField);
   }
 
+  // Swiss rounds
+  if (state.format === 'swiss') {
+    const N = state.players.length;
+    const maxR = Math.max(1, N - 1);
+    if (!state.swissRounds || state.swissRounds > maxR) {
+      state.swissRounds = Math.min(maxR, Math.max(3, Math.ceil(Math.log2(Math.max(2, N)))));
+    }
+    const swField = el('div', { class: 'field' });
+    swField.append(el('label', { for: 'swissRounds' }, 'Number of rounds'));
+    const swSel = el('select', { id: 'swissRounds' });
+    for (let r = 1; r <= maxR; r++) swSel.append(el('option', { value: String(r), selected: state.swissRounds === r }, `${r} round${r === 1 ? '' : 's'}`));
+    swSel.addEventListener('change', () => { state.swissRounds = parseInt(swSel.value); });
+    swField.append(swSel);
+    swField.append(el('p', { class: 'hint' }, `Each round pairs players on similar records, avoiding rematches. ${maxR} rounds = everyone plays everyone.`));
+    card.append(swField);
+  }
+
+  // Knockout legs (any format with a bracket)
+  if (state.format === 'league-ko' || state.format === 'groups-ko') {
+    const legField = el('div', { class: 'field' });
+    legField.append(el('label', { for: 'koLegs' }, 'Knockout legs'));
+    const legSel = el('select', { id: 'koLegs' });
+    [[1, 'Single leg — one match per tie'], [2, 'Two legs — home & away on aggregate']].forEach(([v, lbl]) =>
+      legSel.append(el('option', { value: String(v), selected: (state.koLegs || 1) === v }, lbl))
+    );
+    legSel.addEventListener('change', () => { state.koLegs = parseInt(legSel.value); });
+    legField.append(legSel);
+    legField.append(el('p', { class: 'hint' }, 'Two-legged ties are decided on aggregate; the final and 3rd-place match stay single.'));
+    card.append(legField);
+  }
+
   // Players list
   const playersSection = el('div', { class: 'field' });
   playersSection.append(el('label', {}, 'Players'));
+  playersSection.append(el('p', { class: 'hint' }, 'Drag the ⠿ handle to reorder. In Groups mode the order decides who lands in which group.'));
   const grid = el('div', { class: 'player-grid' });
   state.players.forEach((p, idx) => {
     const row = el('div', { class: 'player-row' });
+
+    const handle = el('span', {
+      class: 'drag-handle', draggable: 'true', title: 'Drag to reorder', 'aria-label': 'Drag to reorder player',
+    }, '⠿');
+    handle.addEventListener('dragstart', e => {
+      dragFromIdx = idx;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(idx)); // Firefox needs data set to start a drag
+      try { e.dataTransfer.setDragImage(row, 24, 24); } catch (_) {}
+      row.classList.add('dragging');
+    });
+    handle.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      document.querySelectorAll('.player-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+      dragFromIdx = null;
+    });
+    row.addEventListener('dragover', e => {
+      if (dragFromIdx == null || dragFromIdx === idx) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+    row.addEventListener('drop', e => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if (dragFromIdx == null || dragFromIdx === idx) return;
+      const [moved] = state.players.splice(dragFromIdx, 1);
+      state.players.splice(idx, 0, moved);
+      dragFromIdx = null;
+      renderSetup();
+    });
+    row.append(handle);
+
     row.append(el('span', { class: 'num' }, String(idx + 1)));
     const flagBtn = el('button', { class: 'flag-pick', type: 'button', 'aria-label': 'Pick avatar' }, p.avatar || DEFAULT_AVATAR);
     flagBtn.addEventListener('click', e => openFlagPicker(e.currentTarget, p.id));
@@ -1520,6 +1661,10 @@ function startTournament() {
     state.schedule.groupSchedules = groups.map((g, idx) =>
       ({ tag: groupLetter(idx), playerIds: g, matchdays: generateRoundRobin(g, state.matchesPerPair === 2, groupLetter(idx)) })
     );
+  } else if (state.format === 'swiss') {
+    // Swiss rounds are generated progressively; create round 1 now.
+    state.schedule.league = [];
+    generateSwissRound();
   } else {
     const allIds = state.players.map(p => p.id);
     state.schedule.league = generateRoundRobin(allIds, state.matchesPerPair === 2);
@@ -1534,6 +1679,72 @@ function startTournament() {
 
 function groupLetter(i) { return String.fromCharCode(65 + i); /* A, B, C... */ }
 
+/* ---------------- Swiss system ---------------- */
+function makeSwissMatch(homeId, awayId) {
+  return {
+    id: uid(), home: homeId, away: awayId,
+    homeScore: null, awayScore: null, homeScorers: '', awayScorers: '',
+    locked: false, scorersOpen: false, group: null,
+  };
+}
+function makeByeMatch(playerId) {
+  return {
+    id: uid(), bye: playerId, home: playerId, away: null,
+    homeScore: null, awayScore: null, homeScorers: '', awayScorers: '',
+    locked: false, scorersOpen: false, group: null,
+  };
+}
+function swissPlayed() { return state.schedule.league.flat(); }
+function swissHaveMet(aId, bId) {
+  return swissPlayed().some(m => (m.home === aId && m.away === bId) || (m.home === bId && m.away === aId));
+}
+function swissHadBye(id) { return swissPlayed().some(m => m.bye === id); }
+function swissRoundComplete() {
+  const r = state.schedule.league[state.schedule.league.length - 1];
+  return !!r && r.every(matchPlayed);
+}
+function generateSwissRound() {
+  // Round 1 uses the (drag-seeded) input order; later rounds sort by current standings.
+  let order;
+  if (state.schedule.league.length === 0) {
+    order = state.players.map(p => p.id);
+  } else {
+    order = computeTable(state.players, swissPlayed()).map(r => r.id);
+  }
+  const round = [];
+  const used = new Set();
+
+  // Odd count → lowest-ranked player without a previous bye sits out (free win).
+  if (order.length % 2 === 1) {
+    let byeId = null;
+    for (let i = order.length - 1; i >= 0; i--) { if (!swissHadBye(order[i])) { byeId = order[i]; break; } }
+    if (byeId == null) byeId = order[order.length - 1];
+    used.add(byeId);
+    round.push(makeByeMatch(byeId));
+  }
+
+  for (let i = 0; i < order.length; i++) {
+    const a = order[i];
+    if (used.has(a)) continue;
+    used.add(a);
+    let opp = null;
+    // Prefer the nearest-ranked opponent not yet faced.
+    for (let j = i + 1; j < order.length; j++) {
+      const b = order[j];
+      if (used.has(b) || swissHaveMet(a, b)) continue;
+      opp = b; break;
+    }
+    // Fallback: allow a rematch with the nearest available player.
+    if (opp == null) {
+      for (let j = i + 1; j < order.length; j++) {
+        if (!used.has(order[j])) { opp = order[j]; break; }
+      }
+    }
+    if (opp != null) { used.add(opp); round.push(makeSwissMatch(a, opp)); }
+  }
+  state.schedule.league.push(round);
+}
+
 /* ---------------- Tournament view ---------------- */
 function renderTournament() {
   const app = document.getElementById('app');
@@ -1541,6 +1752,7 @@ function renderTournament() {
   document.getElementById('subTitle').textContent =
     state.format === 'league' ? 'League'
     : state.format === 'league-ko' ? 'League + Knockout'
+    : state.format === 'swiss' ? 'Swiss'
     : 'Groups + Knockout';
   toggleToolbarForPlaying();
 
@@ -1551,9 +1763,9 @@ function renderTournament() {
   const tabs = el('div', { class: 'tabs' });
   const tabDefs = [
     { id: 'fixtures', label: 'Fixtures' },
-    { id: 'table', label: state.format === 'groups-ko' ? 'Group tables' : 'League table' },
+    { id: 'table', label: state.format === 'groups-ko' ? 'Group tables' : state.format === 'swiss' ? 'Standings' : 'League table' },
   ];
-  if (state.format !== 'league') tabDefs.push({ id: 'bracket', label: 'Knockout bracket' });
+  if (state.format === 'league-ko' || state.format === 'groups-ko') tabDefs.push({ id: 'bracket', label: 'Knockout bracket' });
   tabDefs.push({ id: 'stats', label: 'Stats' });
 
   const champion = getOverallChampion();
@@ -1593,7 +1805,7 @@ function findNextUnplayedMatch() {
     }
   } else if (state.schedule.league) {
     for (const md of state.schedule.league) {
-      for (const m of md) if (m.homeScore == null || m.awayScore == null) return { m, key: locateMdKey(m.id) };
+      for (const m of md) if (m.bye == null && (m.homeScore == null || m.awayScore == null)) return { m, key: locateMdKey(m.id) };
     }
   }
   return null;
@@ -1667,6 +1879,23 @@ function renderFixtures(parent) {
   if (!renderedAny) {
     parent.append(el('div', { class: 'empty' }, 'No matches match this filter. Pick "All" to see everything.'));
   }
+
+  // Swiss: progressive round generation
+  if (state.format === 'swiss') {
+    const generated = state.schedule.league.length;
+    if (generated < state.swissRounds) {
+      const wrap = el('div', { class: 'swiss-next' });
+      if (swissRoundComplete()) {
+        wrap.append(el('p', { class: 'help' }, `Round ${generated} complete — ${state.swissRounds - generated} to go. Pairings use the current standings.`));
+        const btn = el('button', { class: 'btn primary' }, `Generate round ${generated + 1} →`);
+        btn.addEventListener('click', () => { generateSwissRound(); saveState(); renderTournament(); });
+        wrap.append(btn);
+      } else {
+        wrap.append(el('div', { class: 'empty' }, `Finish round ${generated} to unlock the next pairings (Swiss pairs players on form).`));
+      }
+      parent.append(wrap);
+    }
+  }
 }
 
 function renderFilterChips() {
@@ -1695,7 +1924,7 @@ function makeChip(id, label) {
 
 function matchPasses(m) {
   if (fixtureFilter === 'all') return true;
-  const played = m.homeScore != null && m.awayScore != null;
+  const played = matchPlayed(m);
   if (fixtureFilter === 'played') return played;
   if (fixtureFilter === 'unplayed') return !played;
   if (fixtureFilter.startsWith('player:')) {
@@ -1736,7 +1965,7 @@ function renderMatchdays(parent, matchdays, keyPrefix) {
     const filtered = md.filter(matchPasses);
     if (filtered.length === 0) return;
 
-    const allPlayed = md.every(m => m.homeScore != null && m.awayScore != null);
+    const allPlayed = md.every(m => matchPlayed(m));
     const key = `${keyPrefix}-${mdIdx}`;
     const expanded = isMdExpanded(key, allPlayed);
 
@@ -1753,10 +1982,10 @@ function renderMatchdays(parent, matchdays, keyPrefix) {
 
     const titleWrap = el('div', { class: 'md-title-wrap' });
     titleWrap.append(el('span', { class: 'md-caret' + (expanded ? ' open' : ''), 'aria-hidden': 'true' }, '▸'));
-    titleWrap.append(el('h3', {}, `Matchday ${mdIdx + 1}`));
+    titleWrap.append(el('h3', {}, `${state.format === 'swiss' ? 'Round' : 'Matchday'} ${mdIdx + 1}`));
     if (allPlayed) titleWrap.append(el('span', { class: 'md-done' }, '✓ Complete'));
     header.append(titleWrap);
-    const played = md.filter(m => m.homeScore != null && m.awayScore != null).length;
+    const played = md.filter(m => matchPlayed(m)).length;
     header.append(el('div', { class: 'meta' }, `${played}/${md.length} played`));
     block.append(header);
 
@@ -1768,7 +1997,20 @@ function renderMatchdays(parent, matchdays, keyPrefix) {
 }
 
 function renderMatch(m) {
-  const isPlayed = m.homeScore != null && m.awayScore != null;
+  // Swiss bye: a free win, no score entry.
+  if (m.bye != null) {
+    const w = el('div', { class: 'match bye played' });
+    const home = el('div', { class: 'team home' });
+    home.append(el('span', { class: 'name' }, nameOf(m.bye) || '—'));
+    home.append(el('span', { class: 'flag' }, flagOf(m.bye)));
+    w.append(home);
+    const center = el('div', { class: 'center' });
+    center.append(el('span', { class: 'bye-badge' }, 'Bye · +3'));
+    w.append(center);
+    w.append(el('div', { class: 'team away' }));
+    return w;
+  }
+  const isPlayed = matchPlayed(m);
   const wrapper = el('div', { class: 'match' + (isPlayed ? ' played' : '') + (m.locked ? ' locked' : '') });
   // Home team
   const home = el('div', { class: 'team home' });
@@ -1904,7 +2146,7 @@ function onScoreInput(m, side, value) {
   const before = side === 'home' ? m.homeScore : m.awayScore;
   if (side === 'home') m.homeScore = v;
   else m.awayScore = v;
-  if (v != null && before == null && m.homeScore != null && m.awayScore != null) playGoal();
+  if (v != null && before == null && matchPlayed(m)) playGoal();
   else if (v != null && before != null && v > before) playGoal();
   scheduleSave();
 
@@ -1948,7 +2190,7 @@ function updateFixtureCounters() {
       sec.querySelectorAll('.matchday').forEach((mdEl, mi) => {
         const md = state.schedule.groupSchedules[gi].matchdays[mi];
         if (!md) return;
-        const played = md.filter(m => m.homeScore != null && m.awayScore != null).length;
+        const played = md.filter(m => matchPlayed(m)).length;
         const meta = mdEl.querySelector('.meta');
         if (meta) meta.textContent = `${played}/${md.length} played`;
       });
@@ -1957,7 +2199,7 @@ function updateFixtureCounters() {
     document.querySelectorAll('.matchday').forEach((mdEl, mi) => {
       const md = state.schedule.league[mi];
       if (!md) return;
-      const played = md.filter(m => m.homeScore != null && m.awayScore != null).length;
+      const played = md.filter(m => matchPlayed(m)).length;
       const meta = mdEl.querySelector('.meta');
       if (meta) meta.textContent = `${played}/${md.length} played`;
     });
@@ -2084,48 +2326,81 @@ function renderBracket(parent) {
   }
 }
 
+function makeLegRow(m, tag, hostId, guestId, hostField, guestField, disabled) {
+  const row = el('div', { class: 'ko-leg' });
+  row.append(el('span', { class: 'leg-tag' }, tag));
+  row.append(el('span', { class: 'flag' }, flagOf(hostId)));
+  const hi = el('input', {
+    type: 'number', min: '0', max: '99', inputmode: 'numeric',
+    value: m[hostField] != null ? String(m[hostField]) : '',
+    'aria-label': `${tag} ${nameOf(hostId) || 'home'} score`, disabled: disabled ? true : null,
+  });
+  hi.addEventListener('input', () => onKoField(m, hostField, hi.value));
+  row.append(hi);
+  row.append(el('span', { class: 'leg-dash' }, '–'));
+  const gi = el('input', {
+    type: 'number', min: '0', max: '99', inputmode: 'numeric',
+    value: m[guestField] != null ? String(m[guestField]) : '',
+    'aria-label': `${tag} ${nameOf(guestId) || 'away'} score`, disabled: disabled ? true : null,
+  });
+  gi.addEventListener('input', () => onKoField(m, guestField, gi.value));
+  row.append(gi);
+  row.append(el('span', { class: 'flag' }, flagOf(guestId)));
+  return row;
+}
+
 function renderKoMatch(m) {
   const winner = koWinner(m);
+  const twoLeg = m.legs === 2 && m.home && m.away;
   const wrap = el('div', { class: 'ko-match' });
-  const homeRow = el('div', { class: 'ko-row' + (winner && winner.playerId === m.home ? ' winner' : winner && m.home ? ' loser' : '') });
-  const homeWho = el('div', { class: 'who' });
-  if (m.home) {
-    homeWho.append(el('span', { class: 'flag' }, flagOf(m.home)));
-    homeWho.append(el('span', { class: 'name' }, nameOf(m.home)));
-  } else {
-    homeWho.append(el('span', { class: 'name ko-tbd' }, m.homeLabel || 'TBD'));
-  }
-  homeRow.append(homeWho);
-  const homeInput = el('input', {
-    type: 'number', min: '0', max: '99', inputmode: 'numeric',
-    value: m.homeScore != null ? String(m.homeScore) : '',
-    'aria-label': 'Home score',
-    disabled: !m.home || !m.away ? true : null,
-  });
-  homeInput.addEventListener('input', () => onKoScore(m, 'home', homeInput.value));
-  homeRow.append(homeInput);
-  wrap.append(homeRow);
-  const awayRow = el('div', { class: 'ko-row' + (winner && winner.playerId === m.away ? ' winner' : winner && m.away ? ' loser' : '') });
-  const awayWho = el('div', { class: 'who' });
-  if (m.away) {
-    awayWho.append(el('span', { class: 'flag' }, flagOf(m.away)));
-    awayWho.append(el('span', { class: 'name' }, nameOf(m.away)));
-  } else {
-    awayWho.append(el('span', { class: 'name ko-tbd' }, m.awayLabel || 'TBD'));
-  }
-  awayRow.append(awayWho);
-  const awayInput = el('input', {
-    type: 'number', min: '0', max: '99', inputmode: 'numeric',
-    value: m.awayScore != null ? String(m.awayScore) : '',
-    'aria-label': 'Away score',
-    disabled: !m.home || !m.away ? true : null,
-  });
-  awayInput.addEventListener('input', () => onKoScore(m, 'away', awayInput.value));
-  awayRow.append(awayInput);
-  wrap.append(awayRow);
 
-  // Penalty shootout if drawn
-  if (m.homeScore != null && m.awayScore != null && m.homeScore === m.awayScore && m.home && m.away) {
+  let agg = { home: 0, away: 0 }, aggAny = false;
+  if (twoLeg) {
+    agg = koAggregate(m);
+    aggAny = [m.homeScore, m.awayScore, m.l2h, m.l2a].some(x => x != null);
+  }
+
+  function sideRow(isHome) {
+    const id = isHome ? m.home : m.away;
+    const label = isHome ? m.homeLabel : m.awayLabel;
+    const row = el('div', { class: 'ko-row' + (winner && winner.playerId === id ? ' winner' : winner && id ? ' loser' : '') });
+    const who = el('div', { class: 'who' });
+    if (id) {
+      who.append(el('span', { class: 'flag' }, flagOf(id)));
+      who.append(el('span', { class: 'name' }, nameOf(id)));
+    } else {
+      who.append(el('span', { class: 'name ko-tbd' }, label || 'TBD'));
+    }
+    row.append(who);
+    if (twoLeg) {
+      row.append(el('span', { class: 'ko-agg' }, aggAny ? String(isHome ? agg.home : agg.away) : '–'));
+    } else {
+      const field = isHome ? 'homeScore' : 'awayScore';
+      const input = el('input', {
+        type: 'number', min: '0', max: '99', inputmode: 'numeric',
+        value: m[field] != null ? String(m[field]) : '',
+        'aria-label': (isHome ? 'Home' : 'Away') + ' score',
+        disabled: !m.home || !m.away ? true : null,
+      });
+      input.addEventListener('input', () => onKoField(m, field, input.value));
+      row.append(input);
+    }
+    return row;
+  }
+
+  wrap.append(sideRow(true));
+  wrap.append(sideRow(false));
+
+  // Two-leg score entry: leg 1 (home hosts), leg 2 (away hosts)
+  if (twoLeg) {
+    const legs = el('div', { class: 'ko-legs' });
+    legs.append(makeLegRow(m, 'L1', m.home, m.away, 'homeScore', 'awayScore', false));
+    legs.append(makeLegRow(m, 'L2', m.away, m.home, 'l2h', 'l2a', false));
+    wrap.append(legs);
+  }
+
+  // Penalty shootout when level after normal play
+  if (koNeedsShootout(m)) {
     wrap.append(el('div', { class: 'ko-divider' }));
     const penRow = el('div', { class: 'pen-row open' });
     penRow.append(el('span', { class: 'pen-label' }, 'Pens'));
@@ -2135,29 +2410,33 @@ function renderKoMatch(m) {
       'aria-label': 'Home penalties', style: 'width:42px;text-align:center',
     });
     hp.addEventListener('input', () => onKoPen(m, 'home', hp.value));
-    const dash = el('span', {}, '–');
     const ap = el('input', {
       type: 'number', min: '0', max: '99', inputmode: 'numeric',
       value: m.awayPen != null ? String(m.awayPen) : '',
       'aria-label': 'Away penalties', style: 'width:42px;text-align:center',
     });
     ap.addEventListener('input', () => onKoPen(m, 'away', ap.value));
-    penRow.append(hp, dash, ap);
+    penRow.append(hp, el('span', {}, '–'), ap);
     wrap.append(penRow);
   }
 
   if (winner) {
-    wrap.append(el('div', { class: 'ko-meta' }, `→ ${winner.label} advances`));
+    let meta = `→ ${winner.label} advances`;
+    if (twoLeg && aggAny) {
+      const wAgg = winner.playerId === m.home ? agg.home : agg.away;
+      const lAgg = winner.playerId === m.home ? agg.away : agg.home;
+      meta += ` (agg ${wAgg}–${lAgg})`;
+    }
+    wrap.append(el('div', { class: 'ko-meta' }, meta));
   }
   return wrap;
 }
 
-function onKoScore(m, side, value) {
+function onKoField(m, field, value) {
   const v = value.trim() === '' ? null : Math.max(0, Math.min(99, parseInt(value) || 0));
-  if (side === 'home') m.homeScore = v; else m.awayScore = v;
-  if (m.homeScore != null && m.awayScore != null && m.homeScore !== m.awayScore) {
-    m.homePen = null; m.awayPen = null;
-  }
+  m[field] = v;
+  // Drop any stale shootout once the tie is no longer level (or no longer complete).
+  if (!koNeedsShootout(m)) { m.homePen = null; m.awayPen = null; }
   scheduleSave();
   renderTournament();
   maybeCelebrate();
@@ -2208,18 +2487,20 @@ function buildBracket() {
 function isStageComplete() {
   if (state.format === 'groups-ko') {
     return state.schedule.groupSchedules.every(g =>
-      g.matchdays.flat().every(m => m.homeScore != null && m.awayScore != null)
+      g.matchdays.flat().every(m => matchPlayed(m))
     );
   } else if (state.format === 'league-ko') {
-    return state.schedule.league.flat().every(m => m.homeScore != null && m.awayScore != null);
+    return state.schedule.league.flat().every(m => matchPlayed(m));
   }
   return false;
 }
 
 function getOverallChampion() {
-  if (state.format === 'league') {
+  if (state.format === 'league' || state.format === 'swiss') {
+    // Swiss is only decided once every round has been generated and played.
+    if (state.format === 'swiss' && state.schedule.league.length < state.swissRounds) return null;
     const fixtures = state.schedule.league.flat();
-    if (fixtures.length === 0 || !fixtures.every(m => m.homeScore != null && m.awayScore != null)) return null;
+    if (fixtures.length === 0 || !fixtures.every(m => matchPlayed(m))) return null;
     const rows = computeTable(state.players, fixtures);
     return rows[0];
   }
@@ -2263,6 +2544,7 @@ function buildPointsProgression(players, matchdays) {
     const gained = {};
     players.forEach(p => gained[p.id] = 0);
     md.forEach(m => {
+      if (m.bye != null) { if (m.bye in gained) gained[m.bye] += 3; return; }
       if (m.homeScore == null || m.awayScore == null) return;
       if (!(m.home in gained) || !(m.away in gained)) return;
       if (m.homeScore > m.awayScore) gained[m.home] += 3;
@@ -2281,7 +2563,7 @@ function renderPointsChart(players, matchdays, titleText) {
   const card = el('div', { class: 'chart-card stat-card' });
   card.append(el('h4', {}, titleText || 'Points progression'));
   let lastPlayed = 0;
-  matchdays.forEach((md, i) => { if (md.some(m => m.homeScore != null && m.awayScore != null)) lastPlayed = i + 1; });
+  matchdays.forEach((md, i) => { if (md.some(m => matchPlayed(m))) lastPlayed = i + 1; });
   if (lastPlayed === 0) {
     card.append(el('div', { class: 'help' }, 'The race chart fills in as results are entered.'));
     return card;
@@ -2337,11 +2619,20 @@ function gatherPlayerMatches(playerId) {
   const out = [];
   function push(m, stage) {
     if (m.home !== playerId && m.away !== playerId) return;
-    if (m.homeScore == null || m.awayScore == null) return;
     const isHome = m.home === playerId;
-    const gf = isHome ? m.homeScore : m.awayScore;
-    const ga = isHome ? m.awayScore : m.homeScore;
     const oppId = isHome ? m.away : m.home;
+    // Aggregate for two-leg ties, single score otherwise.
+    let gf, ga;
+    if (m.legs === 2) {
+      if (!koLegsComplete(m)) return;
+      const a = koAggregate(m);
+      gf = isHome ? a.home : a.away;
+      ga = isHome ? a.away : a.home;
+    } else {
+      if (m.homeScore == null || m.awayScore == null) return;
+      gf = isHome ? m.homeScore : m.awayScore;
+      ga = isHome ? m.awayScore : m.homeScore;
+    }
     let result = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
     let pens = null;
     if (gf === ga && m.homePen != null && m.awayPen != null) {
@@ -2502,7 +2793,7 @@ function buildH2HMatrix(players, fixtures) {
 
 function renderStats(parent) {
   const allMatches = collectAllMatches();
-  const playedMatches = allMatches.filter(m => m.homeScore != null && m.awayScore != null);
+  const playedMatches = allMatches.filter(m => matchPlayed(m));
   if (playedMatches.length === 0) {
     parent.append(el('div', { class: 'empty' }, 'Stats appear after the first match is played.'));
     return;
@@ -2657,7 +2948,7 @@ function collectAllMatches() {
 
 /* ---------------- Toolbar handlers ---------------- */
 function toggleToolbarForSetup() {
-  ['btnEdit', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
+  ['btnEdit', 'btnSimulate', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
     const b = document.getElementById(id);
     if (b) b.style.display = id === 'btnReset' ? (loadState() ? '' : 'none') : 'none';
   });
@@ -2665,7 +2956,7 @@ function toggleToolbarForSetup() {
   if (fab) fab.classList.remove('show');
 }
 function toggleToolbarForPlaying() {
-  ['btnEdit', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
+  ['btnEdit', 'btnSimulate', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
     const b = document.getElementById(id);
     if (b) b.style.display = '';
   });
@@ -2778,6 +3069,89 @@ document.getElementById('btnExport').addEventListener('click', () => {
 });
 
 document.getElementById('btnPrint').addEventListener('click', () => window.print());
+
+/* ---------------- Simulate remaining matches ---------------- */
+function randScore() {
+  // Weighted toward realistic low scores.
+  const dist = [0, 0, 1, 1, 1, 2, 2, 3, 4, 5];
+  return dist[Math.floor(Math.random() * dist.length)];
+}
+function simulateRemaining() {
+  let filled = 0;
+  const fillFlat = list => list.forEach(m => {
+    if (m.bye != null) return;
+    if (m.homeScore == null || m.awayScore == null) {
+      m.homeScore = randScore();
+      m.awayScore = randScore();
+      filled++;
+    }
+  });
+
+  if (state.format === 'groups-ko') {
+    state.schedule.groupSchedules.forEach(g => fillFlat(g.matchdays.flat()));
+  } else if (state.format === 'swiss') {
+    // Fill the current round, generate the next, repeat through all rounds.
+    let guard = 0;
+    while (guard++ < 60) {
+      fillFlat(state.schedule.league.flat());
+      if (state.schedule.league.length < state.swissRounds && swissRoundComplete()) {
+        generateSwissRound();
+      } else break;
+    }
+  } else {
+    fillFlat(state.schedule.league.flat());
+  }
+
+  // If the group/league stage just completed, build the bracket so it can be simulated too.
+  if (state.format !== 'league' && !state.ko && isStageComplete()) buildBracket();
+
+  // Knockout: fill round by round so winners propagate before the next round is decided.
+  if (state.ko) {
+    let guard = 0;
+    while (guard++ < 30) {
+      koResolveBracket(state.ko);
+      const all = state.ko.rounds.flat().concat(state.ko.thirdPlace ? [state.ko.thirdPlace] : []);
+      let progressed = false;
+      all.forEach(m => {
+        if (!(m.home && m.away)) return;
+        let changed = false;
+        if (m.homeScore == null) { m.homeScore = randScore(); changed = true; }
+        if (m.awayScore == null) { m.awayScore = randScore(); changed = true; }
+        if (m.legs === 2) {
+          if (m.l2h == null) { m.l2h = randScore(); changed = true; }
+          if (m.l2a == null) { m.l2a = randScore(); changed = true; }
+        }
+        // Ensure a decisive penalty shootout when the tie is level.
+        if (koNeedsShootout(m) && (m.homePen == null || m.awayPen == null || m.homePen === m.awayPen)) {
+          let hp = 3 + Math.floor(Math.random() * 3);
+          let ap = 3 + Math.floor(Math.random() * 3);
+          if (hp === ap) (Math.random() < 0.5 ? hp++ : ap++);
+          m.homePen = hp;
+          m.awayPen = ap;
+          changed = true;
+        }
+        if (changed) { filled++; progressed = true; }
+      });
+      if (!progressed) break;
+    }
+  }
+
+  saveState();
+  renderTournament();
+  maybeCelebrate();
+  toast(filled ? `Simulated ${filled} match${filled === 1 ? '' : 'es'}` : 'No matches left to simulate');
+}
+
+document.getElementById('btnSimulate').addEventListener('click', () => {
+  showModal({
+    title: 'Simulate remaining matches?',
+    body: () => el('p', {}, 'Every unplayed match (and any knockout rounds that unlock) gets a random scoreline. Results you’ve already entered are kept.'),
+    actions: [
+      { label: 'Cancel', onClick: closeModal },
+      { label: 'Simulate', primary: true, onClick: () => { closeModal(); simulateRemaining(); } },
+    ],
+  });
+});
 
 document.getElementById('btnReset').addEventListener('click', () => {
   showModal({

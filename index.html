@@ -257,14 +257,21 @@
   }
   .match .scores .dash { color: var(--muted); font-weight: 700; }
   .match .below {
-    display: flex; gap: 6px; align-items: center;
-    font-size: .78rem; color: var(--muted);
+    display: flex; gap: 7px; align-items: center; justify-content: center;
+    flex-wrap: wrap;
   }
-  .match .swap-btn {
-    background: none; border: none; color: var(--muted-2); cursor: pointer;
-    font-size: .85rem; padding: 2px 4px; border-radius: 4px;
+  .match .match-action {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--card-2); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer;
+    font: inherit; font-size: .76rem; font-weight: 600;
+    padding: 5px 11px; border-radius: 999px;
+    transition: color var(--t), background var(--t), border-color var(--t);
   }
-  .match .swap-btn:hover { color: var(--text); background: var(--card-2); }
+  .match .match-action:hover { color: var(--text); background: var(--card); border-color: var(--border-strong); }
+  .match .match-action.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+  .match .match-action.danger:hover { color: var(--danger); border-color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--card)); }
+  .match .match-action .ico { font-size: .85rem; line-height: 1; }
   .scorers-row {
     grid-column: 1 / -1;
     display: none;
@@ -571,14 +578,6 @@
   }
   .hint-close:hover { color: var(--text); background: var(--card); }
 
-  /* Slightly bigger touch targets for swap / scorers / clear */
-  .match .swap-btn {
-    padding: 5px 9px;
-    font-size: .85rem;
-    min-height: 28px;
-    border-radius: 6px;
-  }
-
   /* ============================================================
      Theme system — segmented toggle + scoped overrides
      Default = "classic" (clean light). Toggle switches to "midnight" (dark).
@@ -667,6 +666,70 @@
   html[data-theme="midnight"] .flag-picker-pop { background: #141b2d; border-color: var(--border-strong); }
   html[data-theme="midnight"] .flag-picker-pop button:hover { background: #1b2336; }
 
+  /* ============================================================
+     Data & insights — points chart, H2H matrix, player profile
+     ============================================================ */
+  .chart-card { margin-bottom: 20px; }
+  .pp-chart { width: 100%; height: auto; display: block; margin-top: 6px; overflow: visible; }
+  .pp-grid { stroke: var(--border); stroke-width: 1; }
+  .pp-label { fill: var(--muted-2); font-size: 11px; font-family: var(--font-sans); }
+  .pp-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .pp-dot { stroke: var(--card); stroke-width: 1.5; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; }
+  .legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: .86rem; color: var(--muted); }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+  .table-hint { color: var(--muted); font-size: .82rem; margin: 0 0 12px; }
+  table.standings tbody tr.clickable-row { cursor: pointer; }
+  table.standings tbody tr.clickable-row:hover { background: var(--accent-soft); }
+  table.standings tbody tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .h2h-wrap { overflow-x: auto; }
+  table.h2h { border-collapse: separate; border-spacing: 0; font-size: .85rem; }
+  table.h2h th, table.h2h td {
+    padding: 8px 10px; text-align: center; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  table.h2h thead th { color: var(--muted); font-weight: 600; }
+  table.h2h .h2h-row-head {
+    text-align: left; font-weight: 600;
+    position: sticky; left: 0; background: var(--card); z-index: 1;
+  }
+  table.h2h td.h2h-self { background: var(--card-2); color: var(--muted-2); }
+  .h2h-cell.w { color: var(--success); font-weight: 700; }
+  .h2h-cell.l { color: var(--danger); font-weight: 700; }
+  .h2h-cell.d { color: var(--muted); }
+
+  .modal.wide { max-width: 620px; }
+  .modal { max-height: 88vh; overflow: auto; }
+  .profile-head { display: flex; align-items: center; gap: 14px; }
+  .profile-head .pf-avatar { font-size: 2.2rem; line-height: 1; }
+  .profile-head .pf-name { font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; }
+  .profile-head .pf-sub { color: var(--muted); font-size: .85rem; }
+  .pf-statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 8px; margin: 16px 0; }
+  .pf-stat { background: var(--card-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; text-align: center; }
+  .pf-stat .v { font-size: 1.2rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .pf-stat .k { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-top: 3px; }
+  .pf-section-title {
+    font-size: .76rem; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); margin: 18px 0 8px; font-weight: 700;
+  }
+  .results-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+  .result-row {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center;
+    padding: 7px 11px; background: var(--card-2); border: 1px solid var(--border);
+    border-radius: 9px; font-size: .9rem;
+  }
+  .result-row .rr-badge {
+    width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; font-size: .68rem; font-weight: 800; color: #fff;
+  }
+  .rr-badge.W { background: var(--success); }
+  .rr-badge.L { background: var(--danger); }
+  .rr-badge.D { background: var(--muted-2); }
+  .result-row .rr-opp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result-row .rr-score { font-weight: 800; font-variant-numeric: tabular-nums; }
+
   /* Mobile */
   @media (max-width: 640px) {
     .container { padding: 14px; }
@@ -681,7 +744,7 @@
 
   /* Print */
   @media print {
-    .toolbar, .tabs, .btn, .field, .scorers-row, .swap-btn, .champion-banner .trophy { display: none !important; }
+    .toolbar, .tabs, .btn, .field, .scorers-row, .match-action, .champion-banner .trophy { display: none !important; }
     header.app-header { position: static; }
     body, .card { background: white; box-shadow: none; }
     .match { break-inside: avoid; }
@@ -1736,7 +1799,8 @@ function renderMatch(m) {
   center.append(scoresRow);
   // Below row: swap + scorers toggle
   const below = el('div', { class: 'below' });
-  const swap = el('button', { class: 'swap-btn', type: 'button', 'aria-label': 'Swap home and away' }, '↔ swap');
+  const swap = el('button', { class: 'match-action', type: 'button', title: 'Swap home and away', 'aria-label': 'Swap home and away' },
+    el('span', { class: 'ico', 'aria-hidden': 'true' }, '⇄'), 'Swap');
   swap.addEventListener('click', () => {
     [m.home, m.away] = [m.away, m.home];
     [m.homeScore, m.awayScore] = [m.awayScore, m.homeScore];
@@ -1744,8 +1808,11 @@ function renderMatch(m) {
     scheduleSave(); renderTournament();
   });
   below.append(swap);
-  const scorersToggle = el('button', { class: 'swap-btn', type: 'button' },
-    m.scorersOpen ? '− scorers' : '+ scorers');
+  const scorersToggle = el('button', {
+    class: 'match-action' + (m.scorersOpen ? ' active' : ''), type: 'button',
+    'aria-pressed': m.scorersOpen ? 'true' : 'false',
+    title: m.scorersOpen ? 'Hide goalscorers' : 'Add goalscorers',
+  }, el('span', { class: 'ico', 'aria-hidden': 'true' }, '⚽'), 'Scorers');
   scorersToggle.addEventListener('click', () => {
     m.scorersOpen = !m.scorersOpen;
     scheduleSave(); renderTournament();
@@ -1755,7 +1822,8 @@ function renderMatch(m) {
   // Clear button: visible if any score (even partial) is entered, so user can wipe it.
   const hasAnyScore = m.homeScore != null || m.awayScore != null;
   if (hasAnyScore) {
-    const clear = el('button', { class: 'swap-btn', type: 'button', 'aria-label': 'Clear scores for this match' }, '× clear');
+    const clear = el('button', { class: 'match-action danger', type: 'button', title: 'Clear scores for this match', 'aria-label': 'Clear scores for this match' },
+      el('span', { class: 'ico', 'aria-hidden': 'true' }, '✕'), 'Clear');
     clear.addEventListener('click', () => {
       m.homeScore = null;
       m.awayScore = null;
@@ -1783,7 +1851,7 @@ function renderMatch(m) {
     hCol.append(el('label', {}, `${nameOf(m.home)} goalscorers`));
     const hIn = el('input', {
       type: 'text',
-      placeholder: 'e.g. Messi 23, Messi 67, OG',
+      placeholder: 'e.g. Messi, Ronaldo, Rooney',
       value: m.homeScorers,
       'aria-label': `Goalscorers for ${nameOf(m.home)}`,
     });
@@ -1794,7 +1862,7 @@ function renderMatch(m) {
     aCol.append(el('label', {}, `${nameOf(m.away)} goalscorers`));
     const aIn = el('input', {
       type: 'text',
-      placeholder: 'e.g. Mbappé 12, Vinicius 78',
+      placeholder: 'e.g. Mbappé, Dembélé, Hakimi',
       value: m.awayScorers,
       'aria-label': `Goalscorers for ${nameOf(m.away)}`,
     });
@@ -1898,6 +1966,7 @@ function updateFixtureCounters() {
 
 /* ---------------- League / group tables ---------------- */
 function renderTables(parent) {
+  parent.append(el('p', { class: 'table-hint' }, '💡 Tip: click any team to open their profile, results and head-to-head.'));
   if (state.format === 'groups-ko') {
     state.schedule.groupSchedules.forEach(group => {
       const sec = el('div', { class: 'group-section' });
@@ -1928,8 +1997,15 @@ function buildStandingsTable(players, fixtures, qualLine) {
   const tbody = el('tbody');
   rows.forEach((r, idx) => {
     const pos = idx + 1;
-    const trClass = pos <= qualLine ? 'qual' : '';
-    const tr = el('tr', { class: trClass, 'data-id': r.id });
+    const trClass = (pos <= qualLine ? 'qual ' : '') + 'clickable-row';
+    const tr = el('tr', {
+      class: trClass, 'data-id': r.id, tabindex: '0', role: 'button',
+      title: `View ${r.name}'s profile`,
+      onclick: () => openPlayerProfile(r.id),
+    });
+    tr.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPlayerProfile(r.id); }
+    });
     const posClass = pos === 1 ? 'pos gold' : pos === 2 ? 'pos silver' : pos === 3 ? 'pos bronze' : 'pos';
     const posCell = el('td', { class: posClass });
     if (r.tieNote) {
@@ -2166,6 +2242,264 @@ function maybeCelebrate() {
 }
 
 /* ---------------- Stats ---------------- */
+/* ---------------- Data & insights helpers ---------------- */
+const PALETTE = ['#4f46e5','#0ea5e9','#16a34a','#f59e0b','#e11d48','#a855f7','#0d9488','#db2777','#65a30d','#ea580c','#2563eb','#7c3aed','#059669','#d97706','#dc2626','#0891b2'];
+function playerColor(id) {
+  const i = state.players.findIndex(p => p.id === id);
+  return PALETTE[(i < 0 ? 0 : i) % PALETTE.length];
+}
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs) {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+// Cumulative points per matchday (index 0 = before any matchday).
+function buildPointsProgression(players, matchdays) {
+  const series = {};
+  players.forEach(p => series[p.id] = [0]);
+  matchdays.forEach(md => {
+    const gained = {};
+    players.forEach(p => gained[p.id] = 0);
+    md.forEach(m => {
+      if (m.homeScore == null || m.awayScore == null) return;
+      if (!(m.home in gained) || !(m.away in gained)) return;
+      if (m.homeScore > m.awayScore) gained[m.home] += 3;
+      else if (m.homeScore < m.awayScore) gained[m.away] += 3;
+      else { gained[m.home] += 1; gained[m.away] += 1; }
+    });
+    players.forEach(p => {
+      const arr = series[p.id];
+      arr.push(arr[arr.length - 1] + gained[p.id]);
+    });
+  });
+  return players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar, color: playerColor(p.id), points: series[p.id] }));
+}
+
+function renderPointsChart(players, matchdays, titleText) {
+  const card = el('div', { class: 'chart-card stat-card' });
+  card.append(el('h4', {}, titleText || 'Points progression'));
+  let lastPlayed = 0;
+  matchdays.forEach((md, i) => { if (md.some(m => m.homeScore != null && m.awayScore != null)) lastPlayed = i + 1; });
+  if (lastPlayed === 0) {
+    card.append(el('div', { class: 'help' }, 'The race chart fills in as results are entered.'));
+    return card;
+  }
+  const series = buildPointsProgression(players, matchdays.slice(0, lastPlayed));
+  const xN = lastPlayed;
+  const maxPts = Math.max(3, ...series.map(s => s.points[s.points.length - 1]));
+  const W = 720, H = 320, padL = 34, padR = 16, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const x = i => padL + (i / xN) * plotW;
+  const y = v => padT + plotH - (v / maxPts) * plotH;
+
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'pp-chart', role: 'img',
+    'aria-label': (titleText || 'Points progression') + ' chart' });
+
+  const step = maxPts <= 6 ? 1 : maxPts <= 15 ? 3 : Math.ceil(maxPts / 6);
+  for (let v = 0; v <= maxPts; v += step) {
+    svg.appendChild(svgEl('line', { x1: padL, y1: y(v), x2: W - padR, y2: y(v), class: 'pp-grid' }));
+    const t = svgEl('text', { x: padL - 6, y: y(v) + 4, class: 'pp-label', 'text-anchor': 'end' });
+    t.textContent = String(v);
+    svg.appendChild(t);
+  }
+  const xStep = Math.max(1, Math.ceil(xN / 12));
+  for (let i = 0; i <= xN; i++) {
+    if (i !== 0 && i !== xN && i % xStep !== 0) continue;
+    const t = svgEl('text', { x: x(i), y: H - 8, class: 'pp-label', 'text-anchor': 'middle' });
+    t.textContent = String(i);
+    svg.appendChild(t);
+  }
+  series.forEach(s => {
+    let d = '';
+    s.points.forEach((v, i) => { d += (i === 0 ? 'M' : 'L') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) + ' '; });
+    svg.appendChild(svgEl('path', { d: d.trim(), class: 'pp-line', stroke: s.color }));
+    const li = s.points.length - 1;
+    svg.appendChild(svgEl('circle', { cx: x(li), cy: y(s.points[li]), r: 3.5, class: 'pp-dot', fill: s.color }));
+  });
+  card.append(svg);
+
+  const legend = el('div', { class: 'chart-legend' });
+  series.slice().sort((a, b) => b.points[b.points.length - 1] - a.points[a.points.length - 1]).forEach(s => {
+    const item = el('div', { class: 'legend-item' });
+    item.append(el('span', { class: 'legend-swatch', style: `background:${s.color}` }));
+    const fp = s.points[s.points.length - 1];
+    item.append(document.createTextNode(`${s.avatar || ''} ${s.name} · ${fp} pt${fp === 1 ? '' : 's'}`));
+    legend.append(item);
+  });
+  card.append(legend);
+  return card;
+}
+
+// All completed matches involving a player, oldest first, with stage + perspective.
+function gatherPlayerMatches(playerId) {
+  const out = [];
+  function push(m, stage) {
+    if (m.home !== playerId && m.away !== playerId) return;
+    if (m.homeScore == null || m.awayScore == null) return;
+    const isHome = m.home === playerId;
+    const gf = isHome ? m.homeScore : m.awayScore;
+    const ga = isHome ? m.awayScore : m.homeScore;
+    const oppId = isHome ? m.away : m.home;
+    let result = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
+    let pens = null;
+    if (gf === ga && m.homePen != null && m.awayPen != null) {
+      const pf = isHome ? m.homePen : m.awayPen, pa = isHome ? m.awayPen : m.homePen;
+      pens = `${pf}–${pa} pens`;
+      result = pf > pa ? 'W' : pf < pa ? 'L' : 'D';
+    }
+    out.push({ oppId, oppName: nameOf(oppId) || '—', oppAvatar: flagOf(oppId), gf, ga, result, stage, pens });
+  }
+  if (state.format === 'groups-ko') {
+    state.schedule.groupSchedules.forEach(g => g.matchdays.flat().forEach(m => push(m, 'Group ' + g.tag)));
+  } else {
+    state.schedule.league.flat().forEach(m => push(m, 'League'));
+  }
+  if (state.ko) {
+    state.ko.rounds.forEach((round, ri) => round.forEach(m => push(m, koRoundLabel(ri, state.ko.rounds.length))));
+    if (state.ko.thirdPlace) push(state.ko.thirdPlace, '3rd place');
+  }
+  return out;
+}
+
+function headToHead(playerId) {
+  const byOpp = {};
+  gatherPlayerMatches(playerId).forEach(r => {
+    if (!byOpp[r.oppId]) byOpp[r.oppId] = { oppId: r.oppId, name: r.oppName, avatar: r.oppAvatar, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 };
+    const o = byOpp[r.oppId];
+    o.p++; o.gf += r.gf; o.ga += r.ga;
+    if (r.result === 'W') o.w++; else if (r.result === 'L') o.l++; else o.d++;
+  });
+  return Object.values(byOpp);
+}
+
+function openPlayerProfile(playerId) {
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) return;
+  const matches = gatherPlayerMatches(playerId);
+  const agg = matches.reduce((a, r) => {
+    a.p++; a.gf += r.gf; a.ga += r.ga;
+    if (r.result === 'W') a.w++; else if (r.result === 'L') a.l++; else a.d++;
+    return a;
+  }, { p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0 });
+  const gd = agg.gf - agg.ga;
+  const pts = agg.w * 3 + agg.d;
+  const cs = matches.filter(r => r.ga === 0).length;
+  const h2h = headToHead(playerId).sort((a, b) => b.p - a.p);
+
+  showModal({
+    wide: true,
+    title: 'Player profile',
+    body: () => {
+      const wrap = el('div', {});
+      const head = el('div', { class: 'profile-head' });
+      head.append(el('span', { class: 'pf-avatar' }, p.avatar || DEFAULT_AVATAR));
+      const ht = el('div', {});
+      ht.append(el('div', { class: 'pf-name' }, p.name));
+      ht.append(el('div', { class: 'pf-sub' }, `${agg.p} match${agg.p === 1 ? '' : 'es'} played`));
+      head.append(ht);
+      wrap.append(head);
+
+      const sg = el('div', { class: 'pf-statgrid' });
+      const stat = (v, k, cls) => {
+        const d = el('div', { class: 'pf-stat' });
+        d.append(el('div', { class: 'v' + (cls ? ' ' + cls : '') }, v));
+        d.append(el('div', { class: 'k' }, k));
+        return d;
+      };
+      sg.append(stat(String(pts), 'Points'));
+      sg.append(stat(`${agg.w}-${agg.d}-${agg.l}`, 'W-D-L'));
+      sg.append(stat(`${agg.gf}:${agg.ga}`, 'GF:GA'));
+      sg.append(stat((gd > 0 ? '+' : '') + gd, 'GD', gd > 0 ? 'gd-plus' : gd < 0 ? 'gd-minus' : ''));
+      sg.append(stat(String(cs), 'Clean sheets'));
+      wrap.append(sg);
+
+      if (matches.length) {
+        wrap.append(el('div', { class: 'pf-section-title' }, 'Recent form'));
+        const fb = el('span', { class: 'form-bar' });
+        matches.slice(-8).forEach(r => fb.append(el('span', { class: 'form-pip ' + r.result }, r.result)));
+        wrap.append(fb);
+      }
+
+      wrap.append(el('div', { class: 'pf-section-title' }, 'Results'));
+      if (!matches.length) {
+        wrap.append(el('div', { class: 'help' }, 'No completed matches yet.'));
+      } else {
+        const list = el('div', { class: 'results-list' });
+        matches.slice().reverse().forEach(r => {
+          const row = el('div', { class: 'result-row' });
+          row.append(el('span', { class: 'rr-badge ' + r.result }, r.result));
+          row.append(el('span', { class: 'rr-opp' }, `${r.oppAvatar} ${r.oppName}  ·  ${r.stage}`));
+          row.append(el('span', { class: 'rr-score' }, `${r.gf}–${r.ga}` + (r.pens ? ` (${r.pens})` : '')));
+          list.append(row);
+        });
+        wrap.append(list);
+      }
+
+      if (h2h.length) {
+        wrap.append(el('div', { class: 'pf-section-title' }, 'Head-to-head'));
+        const list = el('div', { class: 'results-list' });
+        h2h.forEach(o => {
+          const row = el('div', { class: 'result-row' });
+          row.append(el('span', {}, o.avatar));
+          row.append(el('span', { class: 'rr-opp' }, `${o.name}  ·  ${o.p} played`));
+          row.append(el('span', { class: 'rr-score' }, `${o.w}-${o.d}-${o.l}  ·  ${o.gf}:${o.ga}`));
+          list.append(row);
+        });
+        wrap.append(list);
+      }
+      return wrap;
+    },
+    actions: [{ label: 'Close', primary: true, onClick: closeModal }]
+  });
+}
+
+function buildH2HMatrix(players, fixtures) {
+  const res = {};
+  players.forEach(r => res[r.id] = {});
+  fixtures.forEach(m => {
+    if (m.homeScore == null || m.awayScore == null) return;
+    if (!(m.home in res) || !(m.away in res)) return;
+    function add(aId, bId, gf, ga) {
+      if (!res[aId][bId]) res[aId][bId] = { w: 0, d: 0, l: 0, gf: 0, ga: 0, p: 0 };
+      const c = res[aId][bId]; c.p++; c.gf += gf; c.ga += ga;
+      if (gf > ga) c.w++; else if (gf < ga) c.l++; else c.d++;
+    }
+    add(m.home, m.away, m.homeScore, m.awayScore);
+    add(m.away, m.home, m.awayScore, m.homeScore);
+  });
+  const wrap = el('div', { class: 'h2h-wrap' });
+  const tbl = el('table', { class: 'h2h' });
+  const thead = el('thead'); const trh = el('tr');
+  trh.append(el('th', { class: 'h2h-row-head' }, ''));
+  players.forEach(c => trh.append(el('th', { title: c.name }, c.avatar || DEFAULT_AVATAR)));
+  thead.append(trh); tbl.append(thead);
+  const tbody = el('tbody');
+  players.forEach(rp => {
+    const tr = el('tr');
+    const rh = el('td', { class: 'h2h-row-head' });
+    rh.append(el('span', { class: 'flag' }, rp.avatar || DEFAULT_AVATAR));
+    rh.append(document.createTextNode(' ' + rp.name));
+    tr.append(rh);
+    players.forEach(cp => {
+      if (cp.id === rp.id) { tr.append(el('td', { class: 'h2h-self' }, '—')); return; }
+      const c = res[rp.id][cp.id];
+      const td = el('td', {});
+      if (!c) td.append(el('span', { class: 'h2h-cell d' }, '·'));
+      else {
+        const cls = c.w > c.l ? 'w' : c.l > c.w ? 'l' : 'd';
+        td.append(el('span', { class: 'h2h-cell ' + cls, title: `${rp.name} vs ${cp.name}` }, `${c.gf}–${c.ga}`));
+      }
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  tbl.append(tbody);
+  wrap.append(tbl);
+  return wrap;
+}
+
 function renderStats(parent) {
   const allMatches = collectAllMatches();
   const playedMatches = allMatches.filter(m => m.homeScore != null && m.awayScore != null);
@@ -2275,6 +2609,35 @@ function renderStats(parent) {
   grid.append(csCard);
 
   parent.append(grid);
+
+  // Points progression chart(s) — the "title race" view
+  if (state.format === 'groups-ko') {
+    state.schedule.groupSchedules.forEach(g => {
+      const gp = state.players.filter(p => g.playerIds.includes(p.id));
+      parent.append(renderPointsChart(gp, g.matchdays, `Points progression — Group ${g.tag}`));
+    });
+  } else {
+    parent.append(renderPointsChart(state.players, state.schedule.league, 'Points progression'));
+  }
+
+  // Head-to-head matrix
+  if (state.players.length >= 2) {
+    if (state.format === 'groups-ko') {
+      state.schedule.groupSchedules.forEach(g => {
+        const gp = state.players.filter(p => g.playerIds.includes(p.id));
+        const card = el('div', { class: 'stat-card' });
+        card.append(el('h4', {}, `Head-to-head — Group ${g.tag}`));
+        card.append(buildH2HMatrix(gp, g.matchdays.flat()));
+        parent.append(card);
+      });
+    } else {
+      const card = el('div', { class: 'stat-card' });
+      card.append(el('h4', {}, 'Head-to-head'));
+      card.append(el('p', { class: 'help', style: 'margin:-2px 0 12px' }, 'Goals shown from the row player’s perspective.'));
+      card.append(buildH2HMatrix(state.players, state.schedule.league.flat()));
+      parent.append(card);
+    }
+  }
 }
 
 function collectAllMatches() {
@@ -2441,9 +2804,10 @@ document.getElementById('btnReset').addEventListener('click', () => {
 });
 
 /* ---------------- Modal ---------------- */
-function showModal({ title, body, actions }) {
+function showModal({ title, body, actions, wide }) {
   const bg = document.getElementById('modalBg');
   const m = document.getElementById('modal');
+  m.className = 'modal' + (wide ? ' wide' : '');
   clear(m);
   m.append(el('h3', {}, title));
   const b = typeof body === 'function' ? body() : (body || el('div'));

@@ -792,6 +792,7 @@
       <button class="btn ghost small" id="btnEdit" title="Edit players & names" style="display:none">Edit</button>
       <button class="btn ghost small" id="btnSimulate" title="Fill remaining matches with random scores" style="display:none">🎲 Simulate</button>
       <button class="btn ghost small" id="btnShare" title="Copy shareable link" style="display:none">Share</button>
+      <button class="btn ghost small" id="btnImage" title="Save bracket or table as a PNG image" style="display:none">📷 Image</button>
       <button class="btn ghost small" id="btnExport" title="Export tournament data" style="display:none">Export</button>
       <button class="btn ghost small" id="btnPrint" title="Print" style="display:none">Print</button>
       <button class="btn ghost small danger" id="btnReset" title="Start over" style="display:none">Reset</button>
@@ -2948,7 +2949,7 @@ function collectAllMatches() {
 
 /* ---------------- Toolbar handlers ---------------- */
 function toggleToolbarForSetup() {
-  ['btnEdit', 'btnSimulate', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
+  ['btnEdit', 'btnSimulate', 'btnImage', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
     const b = document.getElementById(id);
     if (b) b.style.display = id === 'btnReset' ? (loadState() ? '' : 'none') : 'none';
   });
@@ -2956,7 +2957,7 @@ function toggleToolbarForSetup() {
   if (fab) fab.classList.remove('show');
 }
 function toggleToolbarForPlaying() {
-  ['btnEdit', 'btnSimulate', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
+  ['btnEdit', 'btnSimulate', 'btnImage', 'btnShare', 'btnExport', 'btnPrint', 'btnReset'].forEach(id => {
     const b = document.getElementById(id);
     if (b) b.style.display = '';
   });
@@ -3066,6 +3067,258 @@ document.getElementById('btnExport').addEventListener('click', () => {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   toast('Exported JSON');
+});
+
+/* ---------------- PNG image export (canvas, no dependencies) ---------------- */
+const IMG_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+function imgFont(weight, size) { return `${weight} ${size}px ${IMG_FONT}`; }
+function exportColors() {
+  const g = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  return {
+    bg: g('--bg') || '#ffffff', card: g('--card') || '#ffffff', card2: g('--card-2') || '#f7f9fc',
+    text: g('--text') || '#0f172a', muted: g('--muted') || '#64748b', border: g('--border') || '#e8edf4',
+    accent: g('--accent') || '#4f46e5', success: g('--success') || '#16a34a', danger: g('--danger') || '#e11d48',
+    gold: g('--gold') || '#eab308', silver: g('--silver') || '#94a3b8', bronze: g('--bronze') || '#b45309',
+  };
+}
+function rrect(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function truncText(ctx, s, maxW) {
+  if (ctx.measureText(s).width <= maxW) return s;
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+  return s + '…';
+}
+function makeCanvas(W, H) {
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * scale; canvas.height = H * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.textBaseline = 'middle';
+  return { canvas, ctx };
+}
+function drawImageHeader(ctx, C, W, pad, subtitle) {
+  ctx.textAlign = 'left';
+  ctx.fillStyle = C.text; ctx.font = imgFont(800, 24);
+  ctx.fillText('🏆 Tournament Generator', pad, pad + 22);
+  ctx.fillStyle = C.muted; ctx.font = imgFont(600, 14);
+  ctx.fillText(subtitle, pad, pad + 46);
+}
+function drawImageFooter(ctx, C, W, H, pad) {
+  ctx.fillStyle = C.muted; ctx.font = imgFont(500, 12); ctx.textAlign = 'right';
+  ctx.fillText('Made with Tournament Generator · ' + new Date().toLocaleDateString(), W - pad, H - 20);
+}
+function downloadCanvas(canvas, filename) {
+  canvas.toBlob(blob => {
+    if (!blob) { toast('Could not generate image'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = el('a', { href: url, download: filename });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
+}
+
+function exportStandingsCanvas() {
+  const C = exportColors();
+  const W = 840, pad = 30;
+  const sections = [];
+  if (state.format === 'groups-ko') {
+    state.schedule.groupSchedules.forEach(g => {
+      const players = state.players.filter(p => g.playerIds.includes(p.id));
+      sections.push({ title: `Group ${g.tag}`, rows: computeTable(players, g.matchdays.flat()), qual: state.perGroupAdvance });
+    });
+  } else {
+    const qual = state.format === 'league-ko' ? state.koSize : 0;
+    sections.push({ title: state.format === 'swiss' ? 'Swiss standings' : 'League table', rows: computeTable(state.players, state.schedule.league.flat()), qual });
+  }
+  const titleH = 72, headerH = 32, rowH = 38, secTitleH = 30, secGap = 24, footerH = 40;
+  let H = pad + titleH;
+  sections.forEach(s => { H += secTitleH + headerH + s.rows.length * rowH + secGap; });
+  H += footerH;
+
+  const { canvas, ctx } = makeCanvas(W, H);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  drawImageHeader(ctx, C, W, pad, state.format === 'groups-ko' ? 'Group tables' : (state.format === 'swiss' ? 'Swiss standings' : 'Final table'));
+
+  const x0 = pad, contentW = W - pad * 2;
+  const numCols = ['P', 'W', 'D', 'L', 'GF', 'GA', 'GD'];
+  const numW = 40, ptsW = 46, formW = 110, posW = 40;
+  const teamW = contentW - posW - numCols.length * numW - ptsW - formW;
+  const posCX = x0 + posW / 2;
+  const teamX = x0 + posW + 6;
+  const numStart = x0 + posW + teamW;
+  const numCX = i => numStart + i * numW + numW / 2;
+  const ptsCX = numStart + numCols.length * numW + ptsW / 2;
+  const formX = numStart + numCols.length * numW + ptsW + 6;
+
+  let y = pad + titleH;
+  sections.forEach(sec => {
+    ctx.fillStyle = C.text; ctx.font = imgFont(700, 16); ctx.textAlign = 'left';
+    ctx.fillText(sec.title, x0, y + secTitleH / 2); y += secTitleH;
+
+    ctx.fillStyle = C.card2; rrect(ctx, x0, y, contentW, headerH, 8); ctx.fill();
+    ctx.fillStyle = C.muted; ctx.font = imgFont(600, 11);
+    ctx.textAlign = 'center'; ctx.fillText('POS', posCX, y + headerH / 2);
+    ctx.textAlign = 'left'; ctx.fillText('TEAM', teamX, y + headerH / 2);
+    ctx.textAlign = 'center';
+    numCols.forEach((c, i) => ctx.fillText(c, numCX(i), y + headerH / 2));
+    ctx.fillText('PTS', ptsCX, y + headerH / 2);
+    ctx.textAlign = 'left'; ctx.fillText('FORM', formX, y + headerH / 2);
+    y += headerH;
+
+    sec.rows.forEach((r, idx) => {
+      const pos = idx + 1;
+      if (sec.qual && pos <= sec.qual) { ctx.fillStyle = C.success; ctx.fillRect(x0, y, 3, rowH); }
+      ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x0, y + rowH - 0.5); ctx.lineTo(x0 + contentW, y + rowH - 0.5); ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = pos === 1 ? C.gold : pos === 2 ? C.silver : pos === 3 ? C.bronze : C.muted;
+      ctx.font = imgFont(700, 14);
+      ctx.fillText(String(pos), posCX, y + rowH / 2);
+
+      ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.font = imgFont(600, 14);
+      ctx.fillText(truncText(ctx, `${r.avatar || '⚽'}  ${r.name}`, teamW - 10), teamX, y + rowH / 2);
+
+      ctx.textAlign = 'center'; ctx.font = imgFont(500, 13);
+      const vals = [r.played, r.won, r.drawn, r.lost, r.gf, r.ga, (r.gd > 0 ? '+' : '') + r.gd];
+      vals.forEach((v, i) => {
+        ctx.fillStyle = i === 6 ? (r.gd > 0 ? C.success : r.gd < 0 ? C.danger : C.muted) : C.text;
+        ctx.fillText(String(v), numCX(i), y + rowH / 2);
+      });
+      ctx.fillStyle = C.text; ctx.font = imgFont(800, 14);
+      ctx.fillText(String(r.points), ptsCX, y + rowH / 2);
+
+      let fx = formX;
+      r.form.slice(-5).forEach(letter => {
+        ctx.fillStyle = letter === 'W' ? C.success : letter === 'L' ? C.danger : C.silver;
+        rrect(ctx, fx, y + rowH / 2 - 9, 18, 18, 4); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = imgFont(700, 10); ctx.textAlign = 'center';
+        ctx.fillText(letter, fx + 9, y + rowH / 2);
+        fx += 22;
+      });
+      y += rowH;
+    });
+    y += secGap;
+  });
+
+  drawImageFooter(ctx, C, W, H, pad);
+  return canvas;
+}
+
+function drawKoBox(ctx, C, m, x, y, w, h) {
+  ctx.fillStyle = C.card; rrect(ctx, x, y, w, h, 10); ctx.fill();
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1; rrect(ctx, x, y, w, h, 10); ctx.stroke();
+  const winner = koWinner(m);
+  const rowH = h / 2;
+  const drawRow = (isHome, ry) => {
+    const id = isHome ? m.home : m.away;
+    const label = isHome ? m.homeLabel : m.awayLabel;
+    const isWin = winner && winner.playerId === id;
+    const isLose = winner && id && winner.playerId !== id;
+    if (isWin) { ctx.fillStyle = C.accent + '22'; rrect(ctx, x + 3, ry + 3, w - 6, rowH - 5, 6); ctx.fill(); }
+    let sc = '';
+    if (m.legs === 2 && m.home && m.away) { const a = koAggregate(m); sc = String(isHome ? a.home : a.away); }
+    else { const v = isHome ? m.homeScore : m.awayScore; sc = v != null ? String(v) : ''; }
+    // Show penalty result inline when a tie was settled on pens.
+    if (m.homePen != null && m.awayPen != null && (isHome ? m.home : m.away)) {
+      sc += ` (${isHome ? m.homePen : m.awayPen})`;
+    }
+    ctx.textAlign = 'left'; ctx.font = imgFont(isWin ? 800 : 600, 13);
+    ctx.fillStyle = id ? (isLose ? C.muted : C.text) : C.muted;
+    const name = id ? `${flagOf(id)}  ${nameOf(id)}` : (label || 'TBD');
+    ctx.fillText(truncText(ctx, name, w - 60), x + 12, ry + rowH / 2);
+    ctx.textAlign = 'right'; ctx.font = imgFont(800, 13); ctx.fillStyle = isLose ? C.muted : C.text;
+    ctx.fillText(sc, x + w - 12, ry + rowH / 2);
+  };
+  drawRow(true, y);
+  drawRow(false, y + rowH);
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x + 8, y + rowH); ctx.lineTo(x + w - 8, y + rowH); ctx.stroke();
+}
+
+function exportBracketCanvas() {
+  const C = exportColors();
+  const rounds = state.ko.rounds;
+  const boxW = 212, boxH = 58, colGap = 54, vGap = 24, pad = 30, titleH = 78, footerH = 40;
+  const R0 = rounds[0].length;
+  const bracketH = R0 * boxH + (R0 - 1) * vGap;
+
+  const centers = [];
+  rounds.forEach((round, r) => {
+    centers[r] = [];
+    round.forEach((m, i) => {
+      centers[r][i] = r === 0 ? i * (boxH + vGap) + boxH / 2 : (centers[r - 1][2 * i] + centers[r - 1][2 * i + 1]) / 2;
+    });
+  });
+  const colW = boxW + colGap;
+  const W = pad * 2 + rounds.length * boxW + (rounds.length - 1) * colGap;
+  const third = state.ko.thirdPlace;
+  const thirdH = third ? boxH + 44 : 0;
+  const H = pad + titleH + bracketH + thirdH + footerH;
+
+  const { canvas, ctx } = makeCanvas(W, H);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  drawImageHeader(ctx, C, W, pad, 'Knockout bracket');
+  const topY = pad + titleH;
+
+  rounds.forEach((round, r) => {
+    const x = pad + r * colW;
+    ctx.fillStyle = C.muted; ctx.font = imgFont(700, 11); ctx.textAlign = 'left';
+    ctx.fillText(koRoundLabel(r, rounds.length).toUpperCase(), x, topY - 16);
+    round.forEach((m, i) => {
+      const cy = topY + centers[r][i];
+      if (r < rounds.length - 1) {
+        const midX = x + boxW + colGap / 2;
+        ctx.strokeStyle = C.border; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x + boxW, cy); ctx.lineTo(midX, cy); ctx.stroke();
+        if (i % 2 === 0 && round[i + 1]) {
+          const sib = topY + centers[r][i + 1];
+          const nextCy = topY + centers[r + 1][i / 2];
+          ctx.beginPath(); ctx.moveTo(midX, cy); ctx.lineTo(midX, sib); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(midX, nextCy); ctx.lineTo(x + colW, nextCy); ctx.stroke();
+        }
+      }
+      drawKoBox(ctx, C, m, x, cy - boxH / 2, boxW, boxH);
+    });
+  });
+
+  if (third) {
+    const x = pad, y = topY + bracketH + 30;
+    ctx.fillStyle = C.muted; ctx.font = imgFont(700, 11); ctx.textAlign = 'left';
+    ctx.fillText('THIRD-PLACE PLAYOFF', x, y - 12);
+    drawKoBox(ctx, C, third, x, y, boxW, boxH);
+  }
+
+  drawImageFooter(ctx, C, W, H, pad);
+  return canvas;
+}
+
+document.getElementById('btnImage').addEventListener('click', () => {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const actions = [{
+    label: state.format === 'groups-ko' ? 'Group tables' : (state.format === 'swiss' ? 'Standings' : 'League table'),
+    primary: true,
+    onClick: () => { closeModal(); downloadCanvas(exportStandingsCanvas(), `tournament-standings-${stamp}.png`); toast('Saved standings image'); },
+  }];
+  if (state.ko) actions.push({
+    label: 'Knockout bracket',
+    onClick: () => { closeModal(); downloadCanvas(exportBracketCanvas(), `tournament-bracket-${stamp}.png`); toast('Saved bracket image'); },
+  });
+  actions.push({ label: 'Cancel', onClick: closeModal });
+  showModal({
+    title: 'Save as image',
+    body: () => el('p', {}, 'Download a shareable PNG that matches your current theme.'),
+    actions,
+  });
 });
 
 document.getElementById('btnPrint').addEventListener('click', () => window.print());
